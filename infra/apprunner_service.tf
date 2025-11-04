@@ -6,12 +6,14 @@ resource "aws_apprunner_service" "app_service" {
   source_configuration {
     auto_deployments_enabled = true
 
+    
+
     authentication_configuration {
       access_role_arn = aws_iam_role.apprunner_ecr_access_role.arn
     }
 
     image_repository {
-      image_identifier      = var.image_uri
+       image_identifier      = local.image_uri  
       image_repository_type = "ECR"
 
       image_configuration {

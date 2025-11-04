@@ -19,6 +19,12 @@ variable "image_uri" {
   default     = ""
 }
 
+variable "image_tag" {
+  description = "Docker image tag to deploy from ECR"
+  type        = string
+  default     = "latest"
+}
+
 variable "app_version" {
   description = "Application version label"
   type        = string
@@ -33,4 +39,10 @@ variable "apprunner_min_size" {
 variable "apprunner_max_size" {
   type    = number
   default = 5
+}
+
+#Github Variables
+variable "account_id" {
+  type    = string
+  default = "526703406914"
 }
