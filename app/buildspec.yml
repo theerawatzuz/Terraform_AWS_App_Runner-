@@ -1,0 +1,27 @@
+version: 0.2
+env:
+  variables:
+    ECR_REPO_URL: "" # จะตั้งค่าใน CI/CD หรือ override
+    APP_VERSION: "v1"
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin ${ECR_REPO_URL}
+      - COMMIT_SHA=${CODEBUILD_RESOLVED_SOURCE_VERSION}
+      - IMAGE_URI="${ECR_REPO_URL}:${COMMIT_SHA}"
+      - echo "IMAGE_URI=$IMAGE_URI"
+  build:
+    commands:
+      - echo Building the Docker image...
+      - docker build -t "$IMAGE_URI" .
+      - docker push "$IMAGE_URI"
+  post_build:
+    commands:
+      - echo "Build completed on `date`"
+      - echo "Deploying to App Runner via Terraform..."
+      - terraform init infra
+      - terraform apply -auto-approve -var="image_uri=$IMAGE_URI" -var="app_version=${APP_VERSION}"
+artifacts:
+  files:
+    - "**/*"
