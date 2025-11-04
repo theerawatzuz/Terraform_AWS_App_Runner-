@@ -15,6 +15,7 @@ env:
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
   ROLE_TO_ASSUME: ${{ vars.ROLE_TO_ASSUME }}
   APP_RUNNER_SERVICE_ARN: ${{ vars.APP_RUNNER_SERVICE_ARN }}
+  APP_RUNNER_ECR_ACCESS_ROLE_ARN: ${{ vars.APP_RUNNER_ECR_ACCESS_ROLE_ARN }}
 
 jobs:
   build-and-deploy:
@@ -50,12 +51,40 @@ jobs:
             ${{ env.ECR_URI }}:${{ github.sha }}
             ${{ env.ECR_URI }}:latest
 
-      - name: Trigger App Runner deployment
+      # ★ อัปเดต App Runner ให้ชี้ image tag ใหม่ (commit SHA)
+      - name: Update App Runner image to current commit
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          aws apprunner update-service \
+            --service-arn "$APP_RUNNER_SERVICE_ARN" \
+            --source-configuration "{
+              \"AutoDeploymentsEnabled\": true,
+              \"AuthenticationConfiguration\": { \"AccessRoleArn\": \"${APP_RUNNER_ECR_ACCESS_ROLE_ARN}\" },
+              \"ImageRepository\": {
+                \"ImageIdentifier\": \"${ECR_URI}:${IMAGE_TAG}\",
+                \"ImageRepositoryType\": \"ECR\",
+                \"ImageConfiguration\": {
+                  \"Port\": \"3000\",
+                  \"RuntimeEnvironmentVariables\": { \"APP_VERSION\": \"${IMAGE_TAG:0:7}\" }
+                }
+              }
+            }"
+
+      - name: Start deployment & wait until RUNNING
         run: |
           aws apprunner start-deployment --service-arn "$APP_RUNNER_SERVICE_ARN" || true
+          for i in {1..60}; do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn "$APP_RUNNER_SERVICE_ARN" \
+              --query 'Service.Status' --output text)
+            echo "Status: $STATUS"
+            [ "$STATUS" = "RUNNING" ] && break
+            sleep 10
+          done
 
-      - name: Show App Runner status
+      - name: Show current image on service
         run: |
           aws apprunner describe-service \
             --service-arn "$APP_RUNNER_SERVICE_ARN" \
-            --query 'Service.{Status:Status,Url:ServiceUrl,LastUpdated:UpdatedAt}'
+            --query 'Service.LatestServiceDeployment.SourceConfigurationRevision.ImageRepository.ImageIdentifier'
