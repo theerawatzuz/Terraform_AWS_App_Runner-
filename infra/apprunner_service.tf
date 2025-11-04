@@ -13,7 +13,7 @@ resource "aws_apprunner_service" "app_service" {
     }
 
     image_repository {
-       image_identifier      = local.image_uri  
+      image_identifier      = "${var.account_id}.dkr.ecr.${var.region}.amazonaws.com/${var.ecr_repository_name}:latest"
       image_repository_type = "ECR"
 
       image_configuration {

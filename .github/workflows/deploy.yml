@@ -19,12 +19,10 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC AssumeRole)
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.ROLE_TO_ASSUME }}
@@ -33,54 +31,20 @@ jobs:
       - name: Compose ECR URI
         run: echo "ECR_URI=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}" >> $GITHUB_ENV
 
-      - name: Login to Amazon ECR
+      - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set up Docker Buildx
+      - name: Setup Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & Push (linux/amd64)
+      - name: Build & Push (linux/amd64) to :latest
         uses: docker/build-push-action@v6
         with:
           context: ./app
           file: ./app/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: |
-            ${{ env.ECR_URI }}:${{ github.sha }}
-            ${{ env.ECR_URI }}:latest
+          tags: ${{ env.ECR_URI }}:latest
 
-      - name: Resolve image digest for this commit
-        id: digest
-        run: |
-          DIGEST=$(aws ecr describe-images \
-            --repository-name "${ECR_REPOSITORY}" \
-            --image-ids imageTag="${GITHUB_SHA}" \
-            --query 'imageDetails[0].imageDigest' --output text)
-          echo "DIGEST=$DIGEST" >> $GITHUB_ENV
-          echo "Image = ${ECR_URI}@${DIGEST}"
-
-      # ใช้ digest อัปเดต service (ไม่ต้องส่ง auth block ถ้า service มี AccessRole แล้ว)
-      - name: Update App Runner to new image digest
-        run: |
-          aws apprunner update-service \
-            --service-arn "$APP_RUNNER_SERVICE_ARN" \
-            --source-configuration ImageRepository="{ImageIdentifier=${ECR_URI}@${DIGEST},ImageRepositoryType=ECR,ImageConfiguration={Port=3000,RuntimeEnvironmentVariables={APP_VERSION=${GITHUB_SHA::7}}}}" \
-            --auto-deployments-enabled
-
-      - name: Wait until RUNNING
-        run: |
-          for i in {1..60}; do
-            STATUS=$(aws apprunner describe-service \
-              --service-arn "$APP_RUNNER_SERVICE_ARN" \
-              --query 'Service.Status' --output text)
-            echo "Status: $STATUS"
-            [ "$STATUS" = "RUNNING" ] && break
-            sleep 10
-          done
-
-      - name: Show current image on service
-        run: |
-          aws apprunner describe-service \
-            --service-arn "$APP_RUNNER_SERVICE_ARN" \
-            --query 'Service.SourceConfiguration.ImageRepository.ImageIdentifier'
+      - name: Kick App Runner deployment
+        run: aws apprunner start-deployment --service-arn "$APP_RUNNER_SERVICE_ARN" || true
